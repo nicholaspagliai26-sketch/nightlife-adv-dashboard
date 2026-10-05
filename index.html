@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Nightlife ADV</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f5f3f1;--surface:#fff;--ink:#1d1a22;--muted:#6c6573;--line:#e3dee0;--accent:#d6336c;--accent-ink:#fff;--bad:#c0392b;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141218;--surface:#1d1a23;--ink:#efeaf2;--muted:#a39bab;--line:#2f2a36;--accent:#f0628f;--accent-ink:#1a0a11;--bad:#ef6b5c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141218;--surface:#1d1a23;--ink:#efeaf2;--muted:#a39bab;--line:#2f2a36;--accent:#f0628f;--accent-ink:#1a0a11;--bad:#ef6b5c;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 "Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;display:grid;place-items:center;min-height:100vh;padding:24px 16px}
+[hidden]{display:none!important}
+.card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:28px 24px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-family:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;font-weight:800;font-size:30px;margin:4px 0 6px;letter-spacing:-.01em}
+p{margin:0 0 20px;color:var(--muted)}
+label{display:block;font-size:13px;font-weight:600;margin:0 0 14px}
+input[type=text],input[type=password]{display:block;width:100%;margin-top:6px;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.check{display:flex;gap:8px;align-items:center;font-weight:500;color:var(--muted)}
+button{width:100%;font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin-top:6px}
+button:disabled{opacity:.6;cursor:progress}
+.msg{min-height:20px;margin-top:12px;font-size:13px;color:var(--bad)}
+.wait{color:var(--muted);text-align:center}
+.foot{margin-top:18px;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="card" id="loading"><div class="wait" id="loading-msg">Apertura della dashboard…</div></div>
+<form class="card" id="login" hidden autocomplete="on">
+  <div class="eyebrow">Accesso riservato</div>
+  <h1>Nightlife ADV</h1>
+  <p>Accedi con l'utente che ti ha dato Nicholas.</p>
+  <label>Nome utente<input type="text" id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+  <label>Password<input type="password" id="p" name="password" autocomplete="current-password" required></label>
+  <label class="check"><input type="checkbox" id="remember"> Resta collegato su questo dispositivo</label>
+  <button type="submit" id="go">Accedi</button>
+  <div class="msg" id="msg" role="alert"></div>
+  <div class="foot">Password dimenticata? Chiedi a Nicholas di reimpostarla.</div>
+</form>
+<script>
+/* Nightlife ADV · cifratura (AES-GCM 256 + PBKDF2-SHA256). Funziona nel browser e in Node. */
+var NC=globalThis.NC||(()=>{
+  const S=globalThis.crypto.subtle, ITER=310000, enc=new TextEncoder(), dec=new TextDecoder();
+  const b64=u=>{u=new Uint8Array(u);let s="";for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
+  const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const rnd=n=>globalThis.crypto.getRandomValues(new Uint8Array(n));
+  const hex=u=>[...new Uint8Array(u)].map(x=>x.toString(16).padStart(2,"0")).join("");
+  const imp=raw=>S.importKey("raw",raw,"AES-GCM",false,["encrypt","decrypt"]);
+  async function seal(rawKey,obj){const iv=rnd(12);const c=await S.encrypt({name:"AES-GCM",iv},await imp(rawKey),enc.encode(JSON.stringify(obj)));return{i:b64(iv),c:b64(c)}}
+  async function open(rawKey,box){const p=await S.decrypt({name:"AES-GCM",iv:unb64(box.i)},await imp(rawKey),unb64(box.c));return JSON.parse(dec.decode(p))}
+  async function kek(password,saltB64){const base=await S.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);return new Uint8Array(await S.deriveBits({name:"PBKDF2",hash:"SHA-256",salt:unb64(saltB64),iterations:ITER},base,256))}
+  async function userHash(u){return hex(await S.digest("SHA-256",enc.encode("nightlife-adv|"+String(u).trim().toLowerCase())))}
+  async function gitSha(text){const b=enc.encode(text);const h=enc.encode("blob "+b.length+"\0");const all=new Uint8Array(h.length+b.length);all.set(h);all.set(b,h.length);return hex(await S.digest("SHA-1",all))}
+  /* Ricostruisce users.json dalla rubrica (che contiene le chiavi derivate di ogni utente). */
+  async function buildUsers(dir,K,A){
+    const users=[];
+    for(const x of dir.users){const kk=unb64(x.kek);const p={k:b64(K),r:x.r,n:x.n,u:x.u};if(x.r==="admin"||x.r==="servizio")p.a=b64(A);users.push({h:x.h,s:x.s||null,...await seal(kk,p)})}
+    return{v:1,it:ITER,users,dir:await seal(A,dir)};
+  }
+  return{b64,unb64,rnd,seal,open,kek,userHash,gitSha,buildUsers,ITER};
+})();
+if(typeof module!=="undefined")module.exports=NC;
+
+</script>
+<script>
+(()=>{
+  const $=s=>document.querySelector(s);
+  const KEY="nadv-session";
+  const getJSON=async f=>{const r=await fetch(f+"?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw new Error("rete");return r.json()};
+  const read=()=>{for(const st of [sessionStorage,localStorage]){try{const v=st.getItem(KEY);if(v)return{s:JSON.parse(v),remember:st===localStorage}}catch(e){}}return null};
+  const clear=()=>{for(const st of [sessionStorage,localStorage]){try{st.removeItem(KEY)}catch(e){}}};
+  const store=(s,remember)=>{clear();try{(remember?localStorage:sessionStorage).setItem(KEY,JSON.stringify(s))}catch(e){}};
+  const showLogin=m=>{$("#loading").hidden=true;$("#login").hidden=false;$("#msg").textContent=m||"";$("#go").disabled=false;$("#go").textContent="Accedi";setTimeout(()=>$("#u").focus(),0)};
+
+  async function enter(s,remember){
+    const app=await getJSON("app.enc.json");
+    let b;try{b=await NC.open(NC.unb64(s.k),app)}catch(e){clear();return showLogin("La sessione è scaduta: accedi di nuovo.")}
+    const boot=JSON.stringify({data:b.data,at:b.at,s,remember}).replace(/</g,"\\u003c");
+    const html=b.html.replace("<!--NADV-BOOT-->","<script>window.__NADV="+boot+"<\/script>");
+    document.open();document.write(html);document.close();
+  }
+
+  $("#login").addEventListener("submit",async e=>{
+    e.preventDefault();
+    const u=$("#u").value.trim(),p=$("#p").value,remember=$("#remember").checked;
+    if(!u||!p)return;
+    $("#go").disabled=true;$("#go").textContent="Verifica…";$("#msg").textContent="";
+    try{
+      const users=await getJSON("users.json");
+      const h=await NC.userHash(u);
+      const en=users.users.find(x=>x.h===h&&x.s);
+      if(!en)return showLogin("Utente o password non validi.");
+      let pl;try{pl=await NC.open(await NC.kek(p,en.s),en)}catch(_){return showLogin("Utente o password non validi.")}
+      const s={h,u:pl.u,n:pl.n,r:pl.r,k:pl.k,a:pl.a||null};
+      store(s,remember);
+      await enter(s,remember);
+    }catch(err){showLogin("Non riesco a raggiungere la dashboard. Controlla la connessione e riprova.")}
+  });
+
+  (async()=>{
+    const saved=read();
+    if(!saved)return showLogin();
+    try{
+      const users=await getJSON("users.json");
+      if(!users.users.some(x=>x.h===saved.s.h)){clear();return showLogin("Il tuo accesso non è più attivo.")}
+      await enter(saved.s,saved.remember);
+    }catch(e){showLogin("Non riesco a raggiungere la dashboard. Controlla la connessione e riprova.")}
+  })();
+})();
+</script>
+</body></html>
